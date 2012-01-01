@@ -76,14 +76,20 @@ func (c *Conn) getFlash() (string, string) {
 
 func (c *Conn) addTemplateFlash() {
     flashType, flashMsg := c.getFlash()
-    c.Tmpl["Flash"] = (flashMsg != "")
-    c.Tmpl["FlashType"] = flashType
-    c.Tmpl["FlashMessage"] = flashMsg
+    // if it hasn't already been set
+    if _, ok := c.Tmpl["Flash"]; !ok {
+        c.Tmpl["Flash"] = (flashMsg != "")
+        c.Tmpl["FlashType"] = flashType
+        c.Tmpl["FlashMessage"] = flashMsg
+    }
 }
 
 func (c *Conn) addViewFlash(v view) *viewHelper {
-    flashType, flashMsg := c.getFlash()
-    return &viewHelper{v, (flashMsg != ""), flashType, flashMsg}
+    c.addTemplateFlash()
+    return &viewHelper{v,
+                       c.Tmpl["Flash"].(bool),
+                       c.Tmpl["FlashType"].(string),
+                       c.Tmpl["FlashMessage"].(string)}
 }
 
 func (c *Conn) Render(file interface{}, forms ...*forms.Form) {
@@ -92,10 +98,12 @@ func (c *Conn) Render(file interface{}, forms ...*forms.Form) {
     switch (file.(type)) {
     case string:
         uri, _ := file.(string)
+        // add flash to the template context if it exists
         c.addTemplateFlash()
         res = mustache.RenderFile(uri, c.Tmpl)
     case view:
         v, _ := file.(view)
+        // add flash to the viewhelper view to be rendered
         view := c.addViewFlash(v)
         res = mustache.RenderFile(view.Uri(), view)
     }
@@ -122,6 +130,13 @@ func (c *Conn) Redirect(addr string, args ...int) {
 
 func (c *Conn) Flash(typeof, message string) {
     c.Session.Set("_flash", typeof + ":" + message)    
+    // also add it to the current template context in case
+    // Render is called right afterward rather than Redirect
+    // and this is the first time session has been used (cookie
+    // has not been sent to the user yet)
+    c.Tmpl["Flash"] = true
+    c.Tmpl["FlashType"] = typeof
+    c.Tmpl["FlashMessage"] = message
 }
 
 type RouteHandler func(*Conn)
